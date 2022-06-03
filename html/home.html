@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+    <script src="https://cdn.maptiler.com/maptiler-geocoder/v1.1.0/maptiler-geocoder.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <link href="https://cdn.maptiler.com/maptiler-geocoder/v1.1.0/maptiler-geocoder.css" rel="stylesheet" />
+    <link rel="stylesheet" href="../css/home.css">
+
+    <script>
+        var orgn
+        var dest
+        var depD
+        var retD
+        var isTwoWayFlight = false
+        var compensationCostPerKiloCo2 = 0.0426356 // according to co2.myclimate.org
+        var compensationCosts
+        var success = true
+
+        function getCo2Emission() {
+            orgn = String(document.querySelector("#orgArpt").value)
+            dest = String(document.querySelector('#destArpt').value)
+            depD = String(document.querySelector('#depDate').value)
+            retD = String(document.querySelector('#retDate').value)
+
+            if (orgn === "" || dest === "" || depD === "" || retD === "") { //checks for empty input fields
+                alert("Please fill in every field")
+            } else {
+                if (retD !== "") { //checks, if it is one- or two way
+                    isTwoWayFlight = true
+                }
+                if (depD >= retD) { //checks, if the departure date is earlier than the date you want to flight back
+                    alert("Retour date cannot be earlier than departure date")
+                } else {
+
+                    if (new Date().toISOString().slice(0, 10) > depD || new Date().toISOString().slice(0, 10) > retD) { //checks if date of journey is ealrier than the current date
+                        alert("Travel date cannot be earlier than current date.")
+                    } else {
+
+                        document.getElementById("emissionOutput").innerHTML = "loading..." //sets status to loading
+                        getNewToken() //starts the whole progress. First step ist requesting the Token
+                    }
+                }
+            }
+
+        }
+
+
+        function getNewToken() {
+            var settings = {
+                "url": "https://test.api.amadeus.com/v1/security/oauth2/token",
+                "method": "POST",
+                "timeout": 0,
+                "headers": {
+                    "Content-Type": "application/x-www-form-urlencoded"
+                },
+                "data": {
+                    "grant_type": "client_credentials",
+                    "client_id": "Yxs2IrBtYmbigUIpgFr5WaUnXLp7Njft", //API Key, please do not reuse as this is a graded school project 
+                    "client_secret": "XNWRKO8Gw0cgLsGG" //another Key for more security
+                }
+            };
+
+            $.ajax(settings).done(function(response) { //requests data
+                var obj = JSON.parse(JSON.stringify(response)) //creates JSON object and converts to string
+                var result = obj.access_token //filters access token
+                console.log(result) //logs result in console for better debugging
+
+
+                getFlightOffer(orgn.toUpperCase(), dest.toUpperCase(), depD, retD, result) //if everything worked out fine, the airport codes are being put to upper case and eventually the next function gets called
+
+            });
+        }
+
+        function getFlightOffer(origin, destination, departureDate, returnDate, token) { //function for requesting possible flights
+            console.log(origin) //logs user inputs for better debugging
+            console.log(destination)
+            console.log(departureDate)
+            console.log(returnDate)
+            var settings = { //variable for api variable
+                "url": "https://test.api.amadeus.com/v2/shopping/flight-offers?originLocationCode=" + origin + "&destinationLocationCode=" + destination + "&departureDate=" + departureDate + "&returnDate=" + returnDate + "&adults=1&max=3",
+                "method": "GET",
+                "timeout": 0,
+                "headers": {
+                    "Authorization": "Bearer " + token //recently aquired token
+                },
+            };
+
+            $.ajax(settings).done(function(response) {
+                    var flightOfferData = response.data
+                    console.log(flightOfferData) // logs data for better debugging
+                    flightOffersPricing(token, flightOfferData) //calls next function
+                })
+                .fail(function(reponse, error) { //catches possible errors 
+                    document.getElementById("emissionOutput").innerHTML = "Something went wrong, try again. Error: " + error
+                });
+        }
+
+
+        function flightOffersPricing(token, data) { //function for more details about the specifc flight (POST request)
+            console.log(data)
+            var settings = {
+                "url": "https://test.api.amadeus.com/v1/booking/flight-orders",
+                "method": "POST",
+                "timeout": 0,
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer " + token
+                },
+                "data": JSON.stringify({
+                    "data": {
+                        "type": "flight-order",
+                        "flightOffers": [
+                            data[0] //recently aquired data from previous function
+                        ],
+
+                        "travelers": [{ //phantom person, because the API Service requests a traveler
+                            "id": "1",
+                            "dateOfBirth": "2012-10-11",
+                            "gender": "FEMALE",
+                            "contact": {
+                                "emailAddress": "jorge.gonzales833@telefonica.es",
+                                "phones": [{
+                                    "deviceType": "MOBILE",
+                                    "countryCallingCode": "34",
+                                    "number": "480080076"
+                                }]
+                            },
+                            "name": {
+                                "firstName": "ADRIANA",
+                                "lastName": "GONZALES"
+                            }
+                        }],
+                        "remarks": {
+                            "general": [{
+                                "subType": "GENERAL_MISCELLANEOUS",
+                                "text": "ONLINE BOOKING FROM INCREIBLE VIAJES"
+                            }]
+                        },
+                        "ticketingAgreement": {
+                            "option": "DELAY_TO_CANCEL",
+                            "delay": "6D"
+                        },
+                        "contacts": [{
+                            "addresseeName": {
+                                "firstName": "PABLO",
+                                "lastName": "RODRIGUEZ"
+                            },
+                            "companyName": "INCREIBLE VIAJES",
+                            "purpose": "STANDARD",
+                            "phones": [{
+                                "deviceType": "LANDLINE",
+                                "countryCallingCode": "34",
+                                "number": "480080071"
+                            }, {
+                                "deviceType": "MOBILE",
+                                "countryCallingCode": "33",
+                                "number": "480080072"
+                            }],
+                            "emailAddress": "support@increibleviajes.es",
+                            "address": {
+                                "lines": [
+                                    "Calle Prado, 16"
+                                ],
+                                "postalCode": "28014",
+                                "cityName": "Madrid",
+                                "countryCode": "ES"
+                            }
+                        }]
+                    }
+                }),
+            };
+
+            $.ajax(settings).done(function(response) { //data is being sent
+                console.log(response); //again, response gets logged for better debugging
+                try {
+                    var finalEmissions = response.data.flightOffers[0].itineraries[0].segments[0].co2Emissions[0].weight //finally, CO2 emissions get extracted, if successful
+                    success = true
+                } catch {
+                    success = false
+                }
+
+                if (success == true) {
+
+                    if (isTwoWayFlight == true) {
+                        finalEmissions = finalEmissions * 2
+                    }
+                    console.log(finalEmissions)
+                    document.getElementById("emissionOutput").innerHTML = "CO2 Emissions for flight: " + finalEmissions + "kg" + "        Compenation costs: " + finalEmissions * compensationCostPerKiloCo2 + " CHF"
+                    document.getElementById("linkOutput").innerHTML = "https://www.myclimate.org/" //this and line above: output of emissions and price for compensation
+                } else {
+                    document.getElementById("emissionOutput").innerHTML = "Error. Try again with other dates."
+                }
+            })
+
+            .fail(function(response) {
+                document.getElementById("emissionOutput").innerHTML = "Request failed, there are no flights available for these dates. Choose other dates."
+            })
+
+
+        }
+
+        function btnOnClick() { //gets called when button is being pressed
+            getCo2Emission()
+        }
+    </script>
+
+    <title>Home</title>
+</head>
+
+<body>
+
+    <div class="container">
+        <div class="row">
+            <div class="col-2"> </div>
+            <div class="col-2">
+                <input id="orgArpt" class="inputField" type="text" placeholder="Origin Airport">
+            </div>
+
+            <div class="col-2">
+                <input id="destArpt" class="inputField" type="text" placeholder="Destination Airport">
+            </div>
+
+            <div class="col-2">
+                <input id="depDate" class="inputField" type="date" placeholder="Departure Date">
+            </div>
+            <div class="col-2">
+                <input id="retDate" class="inputField" type="date" placeholder="Retour Date">
+            </div>
+            <div class="col-2"> </div>
+        </div>
+        <br><br>
+        <div class="row">
+            <div class="col-5"></div>
+            <div class="col-2">
+                <p class="pText">*Please do only use 3-letter airport codes such as "ZRH", "SFO" or "LON"!</p>
+            </div>
+            <div class="col-5"></div>
+        </div>
+        <div class="row">
+            <div class="col-5"></div>
+            <div class="col-2">
+                <button class="button-3 button__text" role="button " onclick="btnOnClick()">Calculate</button>
+            </div>
+            <div class="col-5"></div>
+        </div>
+        <br><br><br>
+        <div class="row">
+            <div class="col-5"></div>
+            <div class="col-2">
+                <p id="emissionOutput" class="pText"> </p>
+            </div>
+            <div class="col-5"></div>
+        </div>
+        <br>
+        <div class="row">
+            <div class="col-5"></div>
+            <div class="col-2">
+                <p id="linkOutput" type="link" class="pText"></p>
+            </div>
+            <div class="col-5"></div>
+        </div>
+    </div>
+
+</body>
+
+</html>
